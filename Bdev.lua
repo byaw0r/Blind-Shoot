@@ -1,7 +1,7 @@
 local BdevLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/byaw0r/Bdev-UI/main/Bdev.lua"))()
 
 local window = BdevLib:CreateWindow({
-    Name = "ESP Меню"
+    Name = "Bdev Hub"
 })
 
 local laserEnabled = false
