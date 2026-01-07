@@ -1,334 +1,200 @@
 local BdevLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/byaw0r/Bdev-UI/main/Bdev.lua"))()
 
-local CONFIG = {
-    LASER_LENGTH = 75,
-    MAIN_WIDTH = 0.8,
-    THICKNESS_WIDTH = 0.4,
-    TRANSPARENCY = 0.3,
-    THICKNESS_TRANSPARENCY = 0.25,
-    THICKNESS_COUNT = 3,
-    THICKNESS_SPACING = 0.1,
-    UPDATE_PRIORITY = Enum.RenderPriority.Camera.Value - 1,
-    DEBOUNCE_DELAY = 0.5
-}
-
 local window = BdevLib:CreateWindow({
-    Name = "Bdev Hub"
+    Name = "ESP Меню"
 })
 
-local lasers = {}
 local laserEnabled = false
-local updateConnection
+local playerEspEnabled = false
 
-local RunService = game:GetService("RunService")
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
+local function initializeLaserScript()
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+    local Workspace = game:GetService("Workspace")
 
-local function createSquareBeamLaser(head)
-    local laserContainer = Instance.new("Folder")
-    laserContainer.Name = "SquareLaserContainer"
-    laserContainer.Parent = workspace
-    
-    local startAttachment = Instance.new("Attachment")
-    startAttachment.Name = "LaserStart"
-    
-    local endAttachment = Instance.new("Attachment")
-    endAttachment.Name = "LaserEnd"
-    
-    local mainBeam = Instance.new("Beam")
-    mainBeam.Name = "SquareBeamLaser"
-    mainBeam.Attachment0 = startAttachment
-    mainBeam.Attachment1 = endAttachment
-    mainBeam.Color = ColorSequence.new(Color3.new(0, 0, 0))
-    mainBeam.Width0 = CONFIG.MAIN_WIDTH
-    mainBeam.Width1 = CONFIG.MAIN_WIDTH
-    mainBeam.Transparency = NumberSequence.new(CONFIG.TRANSPARENCY)
-    mainBeam.Texture = ""
-    mainBeam.TextureSpeed = 0
-    mainBeam.FaceCamera = false
-    mainBeam.LightEmission = 0
-    mainBeam.LightInfluence = 0
-    mainBeam.Segments = 1
-    mainBeam.CurveSize0 = 0
-    mainBeam.CurveSize1 = 0
-    
-    local thicknessBeams = {}
-    for i = 1, CONFIG.THICKNESS_COUNT do
-        local offset = (i - (CONFIG.THICKNESS_COUNT + 1) / 2) * CONFIG.THICKNESS_SPACING
-        
-        local startAttach = Instance.new("Attachment")
-        startAttach.Name = "LaserThicknessStart" .. i
-        
-        local endAttach = Instance.new("Attachment")
-        endAttach.Name = "LaserThicknessEnd" .. i
-        
-        local beam = Instance.new("Beam")
-        beam.Name = "SquareBeamThickness" .. i
-        beam.Attachment0 = startAttach
-        beam.Attachment1 = endAttach
-        beam.Color = ColorSequence.new(Color3.new(0, 0, 0))
-        beam.Width0 = CONFIG.THICKNESS_WIDTH
-        beam.Width1 = CONFIG.THICKNESS_WIDTH
-        beam.Transparency = NumberSequence.new(CONFIG.THICKNESS_TRANSPARENCY)
-        beam.Texture = ""
-        beam.FaceCamera = false
-        beam.Segments = 1
-        beam.CurveSize0 = 0
-        beam.CurveSize1 = 0
-        
-        thicknessBeams[i] = {
-            beam = beam,
-            startAttachment = startAttach,
-            endAttachment = endAttach,
-            offset = Vector3.new(offset, 0, 0)
-        }
+    local playerLocal = Players.LocalPlayer
+
+    local modelsSkin = {}
+    local listLasers = {}
+
+    local COLOR_LASER = Color3.fromRGB(255, 0, 0)
+    local SCALE_WIDTH_LASER = 1/12.5
+    local OFFSET_HEIGHT_LASER = 0.5
+    local SHORTEN_LASER = 0.50
+
+    local function followModel(model)
+        if modelsSkin[model] then return end
+        if model:IsA("Model") and model.Name:lower():sub(1,5) == "skin_" then
+            modelsSkin[model] = true
+            local beam = Instance.new("Part")
+            beam.Anchored = true
+            beam.CanCollide = false
+            beam.Material = Enum.Material.Neon
+            beam.Color = COLOR_LASER
+            beam.Transparency = 0
+            beam.Name = "SkinLaser"
+            beam.Parent = Workspace
+            listLasers[model] = beam
+        end
     end
-    
-    mainBeam.Parent = laserContainer
-    startAttachment.Parent = laserContainer
-    endAttachment.Parent = laserContainer
-    
-    for _, data in ipairs(thicknessBeams) do
-        data.beam.Parent = laserContainer
-        data.startAttachment.Parent = laserContainer
-        data.endAttachment.Parent = laserContainer
+
+    for _, object in ipairs(Workspace:GetDescendants()) do
+        followModel(object)
     end
-    
-    return {
-        container = laserContainer,
-        mainBeam = mainBeam,
-        mainStart = startAttachment,
-        mainEnd = endAttachment,
-        thicknessBeams = thicknessBeams,
-        head = head,
-        lastUpdate = 0
-    }
+
+    Workspace.DescendantAdded:Connect(followModel)
+
+    local function getBounds(model)
+        local position, dimensions
+        pcall(function()
+            position, dimensions = model:GetBoundingBox()
+        end)
+        return position, dimensions
+    end
+
+    local laserConnection
+    laserConnection = RunService.RenderStepped:Connect(function()
+        for model, _ in pairs(modelsSkin) do
+            if model.Parent then
+                for _, part in ipairs(model:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.Transparency = 0
+                        part.CanCollide = false
+                        if part.Material == Enum.Material.ForceField then
+                            part.Material = Enum.Material.SmoothPlastic
+                        end
+                    end
+                end
+
+                local beam = listLasers[model]
+                if beam then
+                    local position, dimensions = getBounds(model)
+                    if position and dimensions then
+                        local lineSize = Vector3.new(0.1, 0.1, dimensions.Z - SHORTEN_LASER*2)
+                        beam.Size = lineSize
+                        beam.CFrame = position * CFrame.new(0, OFFSET_HEIGHT_LASER, 0)
+                    end
+                end
+            else
+                if listLasers[model] then
+                    listLasers[model]:Destroy()
+                    listLasers[model] = nil
+                end
+                modelsSkin[model] = nil
+            end
+        end
+    end)
+
+    return laserConnection, listLasers, modelsSkin
 end
 
-local function updateLaserPosition(laserData)
-    if not laserData or not laserData.head or not laserData.head.Parent then
+local function initializePlayerEsp()
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+    local Workspace = game:GetService("Workspace")
+
+    local playerLocal = Players.LocalPlayer
+
+    local function checkHitbox(part)
+        local nameLower = part.Name:lower()
+        if nameLower:find("hitbox") or nameLower == "hb" then
+            return true
+        end
+        if part.Size.Magnitude > 10 then
+            return true
+        end
         return false
     end
-    
-    local head = laserData.head
-    local currentTime = tick()
-    
-    if currentTime - laserData.lastUpdate < 0.016 then
-        return true
-    end
-    
-    laserData.lastUpdate = currentTime
-    
-    local headCFrame = head.CFrame
-    local headPosition = head.Position
-    local lookDirection = headCFrame.LookVector
-    
-    local endPosition = headPosition + (lookDirection * CONFIG.LASER_LENGTH)
-    
-    laserData.mainStart.WorldPosition = headPosition
-    laserData.mainEnd.WorldPosition = endPosition
-    
-    for _, thicknessData in ipairs(laserData.thicknessBeams) do
-        if thicknessData.offset then
-            local rightVector = headCFrame.RightVector
-            local offsetWorld = rightVector * thicknessData.offset.X
-            
-            local thicknessStart = headPosition + offsetWorld
-            local thicknessEnd = thicknessStart + (lookDirection * CONFIG.LASER_LENGTH)
-            
-            thicknessData.startAttachment.WorldPosition = thicknessStart
-            thicknessData.endAttachment.WorldPosition = thicknessEnd
-        end
-    end
-    
-    return true
-end
 
-local function addLaserToPlayer(player)
-    if not laserEnabled or player == LocalPlayer or lasers[player.Name] then
-        return
-    end
-    
-    local function setupLaser(character)
-        local head = character:WaitForChild("Head", 2)
-        if not head then return end
-        
-        if lasers[player.Name] then
-            removeLaserFromPlayer(player.Name)
-        end
-        
-        local laserData = createSquareBeamLaser(head)
-        lasers[player.Name] = laserData
-        
-        updateLaserPosition(laserData)
-        
-        return true
-    end
-    
-    if player.Character then
-        task.spawn(function()
-            task.wait(CONFIG.DEBOUNCE_DELAY)
-            setupLaser(player.Character)
-        end)
-    end
-    
-    player.CharacterAdded:Connect(function(character)
-        if laserEnabled then
-            task.wait(CONFIG.DEBOUNCE_DELAY)
-            setupLaser(character)
-        end
-    end)
-    
-    player.CharacterRemoving:Connect(function()
-        if laserEnabled then
-            removeLaserFromPlayer(player.Name)
-        end
-    end)
-end
-
-local function removeLaserFromPlayer(playerName)
-    local laserData = lasers[playerName]
-    if not laserData then return end
-    
-    if laserData.container and laserData.container.Parent then
-        laserData.container:Destroy()
-    end
-    
-    lasers[playerName] = nil
-end
-
-local function setupLasers()
-    for playerName, _ in pairs(lasers) do
-        removeLaserFromPlayer(playerName)
-    end
-    table.clear(lasers)
-    
-    if not laserEnabled then return end
-    
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            addLaserToPlayer(player)
-        end
-    end
-end
-
-local function startLaserUpdate()
-    if updateConnection then
-        updateConnection:Disconnect()
-        updateConnection = nil
-    end
-    
-    updateConnection = RunService.Heartbeat:Connect(function(deltaTime)
-        if not laserEnabled then
-            if updateConnection then
-                updateConnection:Disconnect()
-                updateConnection = nil
+    local function fixCharacter(character)
+        for _, obj in ipairs(character:GetDescendants()) do
+            if obj:IsA("BasePart") then
+                if obj.Name ~= "HumanoidRootPart" then
+                    if checkHitbox(obj) then
+                        obj.Transparency = 1
+                        obj.LocalTransparencyModifier = 1
+                        obj.CanCollide = false
+                    else
+                        obj.Transparency = 0
+                        obj.LocalTransparencyModifier = 0
+                    end
+                end
+            elseif obj:IsA("Decal") then
+                obj.Transparency = 0
             end
-            return
         end
-        
-        for playerName, laserData in pairs(lasers) do
-            local player = Players:FindFirstChild(playerName)
-            
-            if not player or not player.Character or not player.Character:FindFirstChild("Head") then
-                removeLaserFromPlayer(playerName)
-            else
-                laserData.head = player.Character:FindFirstChild("Head")
-                
-                if not updateLaserPosition(laserData) then
-                    removeLaserFromPlayer(playerName)
+    end
+
+    local espConnection
+    espConnection = RunService.RenderStepped:Connect(function()
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= playerLocal then
+                local character = player.Character
+                if character and character.Parent then
+                    fixCharacter(character)
                 end
             end
         end
     end)
+
+    return espConnection
 end
 
+local laserConnection, laserObjects, skinModels
+local espConnection
+
 local laserToggle = window:CreateToggle({
-    Name = "Esp Laser",
+    Name = "ESP Laser",
     Default = false,
     Callback = function(state)
         laserEnabled = state
-        
         if state then
-            setupLasers()
-            startLaserUpdate()
+            laserConnection, laserObjects, skinModels = initializeLaserScript()
         else
-            if updateConnection then
-                updateConnection:Disconnect()
-                updateConnection = nil
+            if laserConnection then
+                laserConnection:Disconnect()
+                laserConnection = nil
             end
-            
-            for playerName, _ in pairs(lasers) do
-                removeLaserFromPlayer(playerName)
+            if laserObjects then
+                for model, laser in pairs(laserObjects) do
+                    if laser then
+                        laser:Destroy()
+                    end
+                end
+                laserObjects = {}
             end
-            table.clear(lasers)
-        end
-    end
-})
-
-local settingsSection = window:CreateSection("Settings")
-
-local lengthSlider = window:CreateSlider({
-    Name = "Laser Length",
-    Min = 10,
-    Max = 200,
-    Default = CONFIG.LASER_LENGTH,
-    Callback = function(value)
-        CONFIG.LASER_LENGTH = value
-    end
-})
-
-local transparencySlider = window:CreateSlider({
-    Name = "Transparency",
-    Min = 0,
-    Max = 1,
-    Default = CONFIG.TRANSPARENCY,
-    Precision = 0.1,
-    Callback = function(value)
-        CONFIG.TRANSPARENCY = value
-        
-        if laserEnabled then
-            for _, laserData in pairs(lasers) do
-                if laserData.mainBeam then
-                    laserData.mainBeam.Transparency = NumberSequence.new(value)
+            if skinModels then
+                for model in pairs(skinModels) do
+                    skinModels[model] = nil
                 end
             end
         end
     end
 })
 
-Players.PlayerAdded:Connect(function(player)
-    if laserEnabled then
-        addLaserToPlayer(player)
+local playerToggle = window:CreateToggle({
+    Name = "ESP Player",
+    Default = false,
+    Callback = function(state)
+        playerEspEnabled = state
+        if state then
+            espConnection = initializePlayerEsp()
+        else
+            if espConnection then
+                espConnection:Disconnect()
+                espConnection = nil
+            end
+        end
+    end
+})
+
+game:GetService("Players").PlayerRemoving:Connect(function(player)
+    if player == playerLocal then
+        if laserConnection then
+            laserConnection:Disconnect()
+        end
+        if espConnection then
+            espConnection:Disconnect()
+        end
     end
 end)
-
-Players.PlayerRemoving:Connect(function(player)
-    if laserEnabled then
-        removeLaserFromPlayer(player.Name)
-    end
-end)
-
-task.spawn(function()
-    task.wait(1)
-    
-    if laserEnabled then
-        setupLasers()
-    end
-end)
-
-local function cleanup()
-    if updateConnection then
-        updateConnection:Disconnect()
-        updateConnection = nil
-    end
-    
-    for playerName, _ in pairs(lasers) do
-        removeLaserFromPlayer(playerName)
-    end
-    table.clear(lasers)
-end
-
-game:BindToClose(cleanup)
-
-print("Bdev Hub loaded!")
